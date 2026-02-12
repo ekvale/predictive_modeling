@@ -60,17 +60,22 @@ generate_synthetic_patients <- function(n_patients = 1200, seed = 42,
   latitude  <- runif(n_patients, lat_range[1], lat_range[2])
   longitude <- runif(n_patients, lon_range[1], lon_range[2])
 
-  # Demographics
+  # Demographics: Minneapolis–Saint Paul metro (synthetic; proportions approximate metro)
+  # Ref: Census / Metro Council; includes Somali and Hmong as distinct groups.
   age_groups <- sample(c("18-29", "30-44", "45-59", "60+"),
                        n_patients, replace = TRUE, prob = c(0.2, 0.35, 0.3, 0.15))
   health_indicator <- sample(c("Good", "Fair", "Poor"), n_patients, replace = TRUE,
                              prob = c(0.5, 0.35, 0.15))
+  race_levels <- c("White", "Black", "Somali", "Asian", "Hmong", "Hispanic/Latino", "Native American", "Other")
+  race_probs <- c(0.65, 0.10, 0.04, 0.05, 0.03, 0.08, 0.01, 0.04)  # Minneapolis metro–inspired
+  race_eth <- sample(race_levels, n_patients, replace = TRUE, prob = race_probs)
 
-  # Dropout: some patients "drop out" (no longer in care) after a period
-  # Time to dropout in days (NA = still active)
+  # Dropout: baseline by health, then multiplied by race factor (synthetic differential access)
   max_follow_up_days <- as.numeric(difftime(as.Date("2024-12-01"), start_intake), units = "days")
   dropout_rate_by_health <- c(Good = 0.15, Fair = 0.25, Poor = 0.45)
-  p_dropout <- dropout_rate_by_health[health_indicator]
+  race_dropout_mult <- c(White = 1.0, Black = 1.3, Somali = 1.35, Asian = 1.0, Hmong = 1.25,
+                         "Hispanic/Latino" = 1.2, "Native American" = 1.2, Other = 1.1)
+  p_dropout <- pmin(0.9, dropout_rate_by_health[health_indicator] * race_dropout_mult[race_eth])
   will_dropout <- runif(n_patients) < p_dropout
   days_to_dropout <- ifelse(will_dropout,
                             pmin(rweibull(n_patients, shape = 1.2, scale = 180), max_follow_up_days),
@@ -94,7 +99,7 @@ generate_synthetic_patients <- function(n_patients = 1200, seed = 42,
     dropout_date[at_risk_during_event][extra_dropout] <- event_dropout_dates[extra_dropout]
   }
 
-  # Build patient-level dataset
+  # Build patient-level dataset (race_eth synthetic for disparity analysis)
   patients <- tibble(
     patient_id   = paste0("P", str_pad(seq_len(n_patients), width = 5, pad = "0")),
     intake_date  = intake_dates,
@@ -102,6 +107,7 @@ generate_synthetic_patients <- function(n_patients = 1200, seed = 42,
     longitude    = longitude,
     age_group    = factor(age_groups, levels = c("18-29", "30-44", "45-59", "60+")),
     health       = factor(health_indicator, levels = c("Good", "Fair", "Poor")),
+    race_eth     = factor(race_eth, levels = race_levels),
     dropout_date = dropout_date
   )
 
@@ -125,10 +131,13 @@ generate_synthetic_patients <- function(n_patients = 1200, seed = 42,
   appt_dates <- min_appt_date + runif(n_appts, 0, span) * 0.9
   appt_dates <- as.Date(appt_dates, origin = "1970-01-01")
 
-  # Attendance: higher miss rate for "agoraphobia" and "access_barrier" segments
+  # Attendance: higher miss rate by health and by race (synthetic disparity)
   health_miss_mult <- c(Good = 0.8, Fair = 1.2, Poor = 1.5)
+  race_miss_mult   <- c(White = 1.0, Black = 1.25, Somali = 1.3, Asian = 1.0, Hmong = 1.2,
+                        "Hispanic/Latino" = 1.2, "Native American" = 1.15, Other = 1.1)
   base_miss <- 0.2
-  p_miss <- pmin(0.85, base_miss * health_miss_mult[patients$health[appointment_rows]])
+  p_miss <- pmin(0.85, base_miss * health_miss_mult[patients$health[appointment_rows]] *
+                   race_miss_mult[patients$race_eth[appointment_rows]])
   p_miss <- p_miss * (0.7 + 0.3 * runif(n_appts))  # add noise
   # During disruption period, elevate miss probability (reduced access)
   if (!is.null(event_start) && !is.null(event_end) && event_miss_boost > 0) {

@@ -33,12 +33,14 @@ server <- function(input, output, session) {
     p <- patients_reactive()
     age_sel <- if (length(input$age_groups) == 0) levels(p$age_group) else input$age_groups
     health_sel <- if (length(input$health) == 0) levels(p$health) else input$health
+    race_sel <- if (length(input$race_eth) == 0) levels(p$race_eth) else input$race_eth
     out <- p %>%
       filter(
         intake_date >= as.Date(input$date_range[1]),
         intake_date <= as.Date(input$date_range[2]),
         as.character(age_group) %in% age_sel,
-        as.character(health) %in% health_sel
+        as.character(health) %in% health_sel,
+        as.character(race_eth) %in% race_sel
       )
     # Region filter (North/South/East/West by lat/lon)
     if (input$region_filter != "All regions") {
@@ -180,6 +182,32 @@ server <- function(input, output, session) {
   km_strata_var <- reactive({
     if (is.null(input$km_strata) || input$km_strata == "none") NULL else input$km_strata
   })
+  # Disparity: outcomes by race (for Disparities tab and overview by race)
+  outcomes_by_race <- reactive({
+    p <- filtered_patients()
+    a <- filtered_appointments()
+    if (nrow(p) == 0) return(data.frame())
+    a %>%
+      left_join(p %>% select(patient_id, race_eth), by = "patient_id") %>%
+      group_by(race_eth) %>%
+      summarise(
+        n_patients = n_distinct(patient_id),
+        n_appts = n(),
+        n_attended = sum(attended, na.rm = TRUE),
+        attendance_rate = mean(attended, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      left_join(
+        p %>% mutate(dropped = !is.na(dropout_date)) %>%
+          group_by(race_eth) %>% summarise(n_dropout = sum(dropped), .groups = "drop"),
+        by = "race_eth"
+      ) %>%
+      mutate(
+        n_dropout = replace_na(n_dropout, 0L),
+        dropout_rate = n_dropout / n_patients,
+        n_missed = n_appts - n_attended
+      )
+  })
   output$longitudinal_km <- renderPlot({
     df <- filtered_survival()
     if (nrow(df) == 0) return(plot(NULL, main = "No data"))
@@ -271,7 +299,7 @@ server <- function(input, output, session) {
       addCircleMarkers(
         lng = ~longitude, lat = ~latitude,
         radius = 4, opacity = 0.6, color = cb_palette[2],
-        popup = ~paste0("Patient: ", patient_id, "<br>Intake: ", intake_date, "<br>Health: ", health)
+        popup = ~paste0("Patient: ", patient_id, "<br>Intake: ", intake_date, "<br>Health: ", health, "<br>Race/ethnicity: ", race_eth)
       ) %>%
       setView(lng = mean(p$longitude), lat = mean(p$latitude), zoom = 9)
   })
@@ -395,6 +423,104 @@ server <- function(input, output, session) {
   output$disruption_stats_table <- DT::renderDataTable({
     disruption_ci_data()
   }, options = list(pageLength = 10), rownames = FALSE)
+
+  # ---------------------------------------------------------------------------
+  # Disparities (by race/ethnicity)
+  # ---------------------------------------------------------------------------
+  output$disparity_attendance_race <- renderPlotly({
+    d <- outcomes_by_race()
+    if (nrow(d) == 0) return(plotly_empty())
+    p <- ggplot(d, aes(race_eth, attendance_rate, fill = race_eth)) +
+      geom_col(show.legend = FALSE) +
+      geom_hline(yintercept = mean(filtered_appointments()$attended, na.rm = TRUE), linetype = 2, linewidth = 0.8) +
+      scale_fill_manual(values = cb_palette) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
+      coord_flip() +
+      labs(x = NULL, y = "Attendance rate", title = "Attendance by race/ethnicity (dashed = overall)")
+    ggplotly(p, tooltip = c("race_eth", "attendance_rate", "n_appts", "n_patients"))
+  })
+  output$disparity_dropout_race <- renderPlotly({
+    d <- outcomes_by_race()
+    if (nrow(d) == 0) return(plotly_empty())
+    p <- ggplot(d, aes(race_eth, dropout_rate, fill = race_eth)) +
+      geom_col(show.legend = FALSE) +
+      geom_hline(yintercept = mean(!is.na(filtered_patients()$dropout_date)), linetype = 2, linewidth = 0.8) +
+      scale_fill_manual(values = cb_palette) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
+      coord_flip() +
+      labs(x = NULL, y = "Dropout rate", title = "Dropout by race/ethnicity (dashed = overall)")
+    ggplotly(p, tooltip = c("race_eth", "dropout_rate", "n_dropout", "n_patients"))
+  })
+  disparity_table_data <- reactive({
+    d <- outcomes_by_race()
+    if (nrow(d) == 0) return(data.frame())
+    ref_rate <- mean(filtered_appointments()$attended, na.rm = TRUE)
+    d %>%
+      mutate(
+        attendance_pct = round(100 * attendance_rate, 1),
+        dropout_pct = round(100 * dropout_rate, 1),
+        disparity_ratio = round(attendance_rate / ref_rate, 2)
+      ) %>%
+      select(race_eth, n_patients, n_appts, n_missed, attendance_pct, dropout_pct, disparity_ratio)
+  })
+  output$disparity_table <- DT::renderDataTable({
+    disparity_table_data()
+  }, options = list(pageLength = 10), rownames = FALSE)
+
+  # ---------------------------------------------------------------------------
+  # Cost & Health Impact
+  # ---------------------------------------------------------------------------
+  cost_impact_data <- reactive({
+    p <- filtered_patients()
+    a <- filtered_appointments()
+    n_missed <- sum(!a$attended, na.rm = TRUE)
+    n_dropout <- sum(!is.na(p$dropout_date))
+    cpm <- if (is.null(input$cost_per_missed) || is.na(input$cost_per_missed)) 0 else input$cost_per_missed
+    cpd <- if (is.null(input$cost_per_dropout) || is.na(input$cost_per_dropout)) 0 else input$cost_per_dropout
+    cost_missed <- cpm * n_missed
+    cost_dropout <- cpd * n_dropout
+    total_cost <- cost_missed + cost_dropout
+    n_patients <- nrow(p)
+    list(
+      n_patients = n_patients,
+      n_missed = n_missed,
+      n_dropout = n_dropout,
+      cost_per_missed = cpm,
+      cost_per_dropout = cpd,
+      cost_missed = cost_missed,
+      cost_dropout = cost_dropout,
+      total_cost = total_cost,
+      missed_per_1k = if (n_patients > 0) round(1000 * n_missed / n_patients, 1) else 0,
+      dropout_per_1k = if (n_patients > 0) round(1000 * n_dropout / n_patients, 1) else 0
+    )
+  })
+  output$cost_summary <- renderUI({
+    x <- cost_impact_data()
+    fluidRow(
+      column(4, bslib::value_box(title = "Missed appointments", value = format(x$n_missed, big.mark = ","), theme = "warning")),
+      column(4, bslib::value_box(title = "Patients lost to follow-up", value = format(x$n_dropout, big.mark = ","), theme = "danger")),
+      column(4, bslib::value_box(title = "Total estimated cost", value = paste0("$", format(round(x$total_cost, 0), big.mark = ",")), theme = "primary"))
+    )
+  })
+  output$health_impact_summary <- renderUI({
+    x <- cost_impact_data()
+    tagList(
+      p(strong("Health burden (filtered population):")),
+      p("Missed care episodes (missed appointments): ", format(x$n_missed, big.mark = ",")),
+      p("Missed appointments per 1,000 patients: ", x$missed_per_1k),
+      p("Patients lost to follow-up: ", format(x$n_dropout, big.mark = ",")),
+      p("Dropouts per 1,000 patients: ", x$dropout_per_1k)
+    )
+  })
+  output$cost_breakdown_table <- DT::renderDataTable({
+    x <- cost_impact_data()
+    tibble(
+      Component = c("Missed appointments", "Patients lost to follow-up", "Total"),
+      Count = c(format(x$n_missed, big.mark = ","), format(x$n_dropout, big.mark = ","), ""),
+      `Unit cost ($)` = c(format(round(x$cost_per_missed, 0), big.mark = ","), format(round(x$cost_per_dropout, 0), big.mark = ","), ""),
+      `Subtotal ($)` = c(format(round(x$cost_missed, 0), big.mark = ","), format(round(x$cost_dropout, 0), big.mark = ","), format(round(x$total_cost, 0), big.mark = ","))
+    )
+  }, options = list(paging = FALSE), rownames = FALSE)
 
   # ---------------------------------------------------------------------------
   # Reproducibility

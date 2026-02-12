@@ -1,24 +1,24 @@
 # =============================================================================
 # Healthcare Access & Continuity Dashboard - UI
 # =============================================================================
-# Multi-tab layout with shared filters. Designed for conference presentation
-# (readable on projectors, color-blind friendly).
+# For R/Medicine 2026. Multi-tab layout: overview, longitudinal, geography,
+# disruption, disparities, cost & health impact, reproducibility.
 # =============================================================================
 
 fluidPage(
   title = "Healthcare Access & Continuity Dashboard",
   theme = bslib::bs_theme(bootswatch = "flatly"),
 
-  # Application title and methodology note
   titlePanel(
     title = div(
       "Healthcare Access & Continuity Dashboard",
       br(),
       tags$small(
-        "Synthetic patient data • HIPAA-compliant • No real patient information"
+        a("R/Medicine 2026", href = "https://rconsortium.github.io/RMedicine_website/", target = "_blank", rel = "noopener"),
+        " • Analyzing health data with R and Shiny • Synthetic data only (HIPAA-compliant)"
       )
     ),
-    windowTitle = "Healthcare Access Dashboard"
+    windowTitle = "Healthcare Access Dashboard | R/Medicine 2026"
   ),
 
   sidebarLayout(
@@ -47,6 +47,12 @@ fluidPage(
         "General health",
         choices = levels(patients_df$health),
         selected = levels(patients_df$health)
+      ),
+      checkboxGroupInput(
+        "race_eth",
+        "Race/ethnicity (synthetic)",
+        choices = levels(patients_df$race_eth),
+        selected = levels(patients_df$race_eth)
       ),
       # Geographic filter (optional: by lat/lon bounds or "All")
       radioButtons(
@@ -119,7 +125,7 @@ fluidPage(
           selectInput(
             "km_strata",
             "Stratify retention curve by",
-            choices = c("None" = "none", "Age group" = "age_group", "General health" = "health"),
+            choices = c("None" = "none", "Age group" = "age_group", "General health" = "health", "Race/ethnicity" = "race_eth"),
             selected = "health"
           ),
           plotOutput("longitudinal_km", height = "400px"),
@@ -165,7 +171,41 @@ fluidPage(
         ),
 
         # ---------------------------------------------------------------------
-        # Tab 5: Reproducibility & Methodology
+        # Tab 5: Disparities
+        # ---------------------------------------------------------------------
+        tabPanel(
+          "Disparities",
+          h3("Outcomes by demographic group"),
+          p("Explore how different demographic groups are affected by access barriers and dropout. All categories are synthetic; disparities are modeled for educational purposes."),
+          fluidRow(
+            column(6, plotlyOutput("disparity_attendance_race", height = "320px")),
+            column(6, plotlyOutput("disparity_dropout_race", height = "320px"))
+          ),
+          h4("Summary by race/ethnicity"),
+          p("Disparity ratio = group attendance rate ÷ overall attendance rate (1.0 = no disparity)."),
+          DT::dataTableOutput("disparity_table")
+        ),
+
+        # ---------------------------------------------------------------------
+        # Tab 6: Cost & Health Impact
+        # ---------------------------------------------------------------------
+        tabPanel(
+          "Cost & Health Impact",
+          h3("Cost and health burden of missed care"),
+          p("Estimate economic cost and population health impact using unit costs (adjust below). Applies to the currently filtered population."),
+          fluidRow(
+            column(4, numericInput("cost_per_missed", "Cost per missed appointment ($)", value = 150, min = 0, step = 25)),
+            column(4, numericInput("cost_per_dropout", "Cost per patient lost to follow-up ($)", value = 500, min = 0, step = 100))
+          ),
+          fluidRow(column(12, uiOutput("cost_summary"))),
+          h4("Health impact on affected population"),
+          uiOutput("health_impact_summary"),
+          h4("Cost breakdown"),
+          DT::dataTableOutput("cost_breakdown_table")
+        ),
+
+        # ---------------------------------------------------------------------
+        # Tab 7: Reproducibility & Methodology
         # ---------------------------------------------------------------------
         tabPanel(
           "Reproducibility",
