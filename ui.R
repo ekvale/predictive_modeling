@@ -56,6 +56,26 @@ fluidPage(
         selected = "All regions"
       ),
       hr(),
+      h4("Disruption scenario", class = "text-secondary"),
+      p(
+        class = "text-muted small",
+        "Simulate a healthcare disruption period that increases dropout and missed appointments in the synthetic data (e.g. reduced access). Default: Minneapolis metro scenario."
+      ),
+      dateRangeInput(
+        "event_range",
+        "Disruption period (start – end)",
+        start = DEFAULT_EVENT_START,
+        end = DEFAULT_EVENT_END,
+        min = as.Date("2020-01-01"),
+        max = as.Date("2024-12-01"),
+        separator = " to ",
+        startview = "year"
+      ),
+      p(
+        class = "text-muted small",
+        "Changing the period regenerates data with elevated dropout and missed appointments during this window."
+      ),
+      hr(),
       p(
         class = "text-muted small",
         "Filters apply across all tabs. Data is synthetic and for demonstration only."
@@ -102,7 +122,7 @@ fluidPage(
             choices = c("None" = "none", "Age group" = "age_group", "General health" = "health"),
             selected = "health"
           ),
-          plotlyOutput("longitudinal_km", height = "400px"),
+          plotOutput("longitudinal_km", height = "400px"),
           fluidRow(
             column(6, plotlyOutput("longitudinal_timeseries", height = "320px")),
             column(6, plotlyOutput("longitudinal_dropout_by_group", height = "320px"))

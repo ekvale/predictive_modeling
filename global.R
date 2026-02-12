@@ -37,18 +37,26 @@ theme_set(theme_minimal(base_size = 12) +
 # -----------------------------------------------------------------------------
 # Generates HIPAA-compliant synthetic patient intake and appointment data.
 # Clearly artificial; no real patient data. Reproducible via set.seed.
+# Default location: Minneapolis metro. Optional disruption period elevates
+# dropout and missed appointments during that window (politically neutral
+# "healthcare disruption" scenario for modeling).
 
-generate_synthetic_patients <- function(n_patients = 1200, seed = 42) {
+# Default disruption window (used when event not set); Minneapolis-relevant.
+DEFAULT_EVENT_START <- as.Date("2020-05-25")
+DEFAULT_EVENT_END   <- as.Date("2020-06-30")
+
+generate_synthetic_patients <- function(n_patients = 1200, seed = 42,
+                                       event_start = NULL, event_end = NULL,
+                                       event_dropout_boost = 0.35, event_miss_boost = 0.25) {
   set.seed(seed)
-  # Base date range for intake (e.g., 2 years of intake)
-  start_intake <- as.Date("2022-01-01")
+  # Intake range includes 2020 so disruption event can affect outcomes
+  start_intake <- as.Date("2020-01-01")
   end_intake   <- as.Date("2024-06-30")
   intake_dates <- sample(seq(start_intake, end_intake, by = "day"), n_patients, replace = TRUE)
 
-  # Geographic coordinates (synthetic metro area: lat/lon bounds)
-  # Represent a fictional region for mapping
-  lat_range <- c(39.5, 40.2)
-  lon_range <- c(-75.5, -74.8)
+  # Minneapolis–Saint Paul metro (synthetic points within metro area)
+  lat_range <- c(44.88, 45.15)
+  lon_range <- c(-93.35, -93.00)
   latitude  <- runif(n_patients, lat_range[1], lat_range[2])
   longitude <- runif(n_patients, lon_range[1], lon_range[2])
 
@@ -71,6 +79,20 @@ generate_synthetic_patients <- function(n_patients = 1200, seed = 42) {
   dropout_date <- if_else(!is.na(days_to_dropout),
                           start_intake + days_to_dropout,
                           as.Date(NA_character_))
+
+  # Optional: healthcare disruption period (e.g. reduced access) increases dropout during window
+  if (!is.null(event_start) && !is.null(event_end) && event_dropout_boost > 0) {
+    event_start <- as.Date(event_start)
+    event_end   <- as.Date(event_end)
+    at_risk_during_event <- intake_dates <= event_end & (is.na(dropout_date) | dropout_date > event_start)
+    n_at_risk <- sum(at_risk_during_event)
+    extra_dropout <- runif(n_at_risk) < event_dropout_boost
+    event_dropout_dates <- as.Date(
+      runif(n_at_risk, as.numeric(event_start), as.numeric(event_end)),
+      origin = "1970-01-01"
+    )
+    dropout_date[at_risk_during_event][extra_dropout] <- event_dropout_dates[extra_dropout]
+  }
 
   # Build patient-level dataset
   patients <- tibble(
@@ -104,11 +126,17 @@ generate_synthetic_patients <- function(n_patients = 1200, seed = 42) {
   appt_dates <- as.Date(appt_dates, origin = "1970-01-01")
 
   # Attendance: higher miss rate for "agoraphobia" and "access_barrier" segments
-  # (synthetic association for demonstration)
   health_miss_mult <- c(Good = 0.8, Fair = 1.2, Poor = 1.5)
   base_miss <- 0.2
   p_miss <- pmin(0.85, base_miss * health_miss_mult[patients$health[appointment_rows]])
   p_miss <- p_miss * (0.7 + 0.3 * runif(n_appts))  # add noise
+  # During disruption period, elevate miss probability (reduced access)
+  if (!is.null(event_start) && !is.null(event_end) && event_miss_boost > 0) {
+    event_start <- as.Date(event_start)
+    event_end   <- as.Date(event_end)
+    in_event <- appt_dates >= event_start & appt_dates <= event_end
+    p_miss[in_event] <- pmin(0.95, p_miss[in_event] + event_miss_boost)
+  }
   attended <- runif(n_appts) > p_miss
 
   # Assign reason when missed (weighted toward access/agoraphobia for demo)
@@ -128,17 +156,13 @@ generate_synthetic_patients <- function(n_patients = 1200, seed = 42) {
   list(patients = patients, appointments = appointments)
 }
 
-# Generate once at app load (reproducible)
-synth <- generate_synthetic_patients(n_patients = 1200, seed = 42)
+# Generate once at app load with default disruption window (for UI defaults / levels)
+synth <- generate_synthetic_patients(
+  n_patients = 1200, seed = 42,
+  event_start = DEFAULT_EVENT_START, event_end = DEFAULT_EVENT_END
+)
 patients_df    <- synth$patients
 appointments_df <- synth$appointments
-
-# Combined long-format for time-to-dropout (one row per patient with time and event)
-survival_df <- patients_df %>%
-  mutate(
-    time_days = as.numeric(difftime(pmin(coalesce(dropout_date, as.Date("2024-12-01")), as.Date("2024-12-01")), intake_date, units = "days")),
-    event     = !is.na(dropout_date)
-  )
 
 # -----------------------------------------------------------------------------
 # 3. HELPER FUNCTIONS
@@ -173,6 +197,7 @@ survfit_to_df <- function(fit) {
 }
 
 # Kaplan-Meier curve as ggplot (patient retention / time to dropout)
+# Uses character strata and static labels so plot renders reliably (no plotly conversion issues).
 km_curve_ggplot <- function(df, group_var = NULL, title = "Patient retention (time to dropout)") {
   if (is.null(group_var)) {
     fit <- survfit(Surv(time_days, event) ~ 1, data = df)
@@ -189,13 +214,16 @@ km_curve_ggplot <- function(df, group_var = NULL, title = "Patient retention (ti
   group_var <- sym(group_var)
   fit <- survfit(Surv(time_days, event) ~ !!group_var, data = df)
   f <- survfit_to_df(fit)
-  p <- ggplot(f, aes(time, surv, color = strata)) +
+  f$strata <- as.character(f$strata)
+  strata_levels <- unique(f$strata)
+  nlev <- length(strata_levels)
+  p <- ggplot(f, aes(time, surv, color = strata, fill = strata)) +
     geom_step(linewidth = 1.2) +
-    geom_ribbon(aes(ymin = lower, ymax = upper, fill = strata), alpha = 0.15, colour = NA) +
+    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.15, colour = NA) +
     scale_y_continuous(labels = percent_format(), limits = c(0, 1)) +
     labs(x = "Days since intake", y = "Retention probability", title = title, color = NULL, fill = NULL) +
-    scale_color_manual(values = cb_palette, labels = function(x) x) +
-    scale_fill_manual(values = cb_palette, labels = function(x) x) +
+    scale_color_manual(values = cb_palette[seq_len(nlev)], breaks = strata_levels) +
+    scale_fill_manual(values = cb_palette[seq_len(nlev)], breaks = strata_levels) +
     theme(legend.position = "bottom")
   p
 }

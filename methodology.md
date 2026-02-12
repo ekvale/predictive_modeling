@@ -2,7 +2,7 @@
 
 ## Synthetic Data
 
-All data in this dashboard are **synthetic** and generated for demonstration only. No real patient data are used. The data are designed to be:
+All data in this dashboard are **synthetic** and generated for demonstration only. No real patient data are used. The default geographic setting is the **Minneapolis–Saint Paul metro area** (synthetic coordinates only). The data are designed to be:
 
 - **HIPAA-compliant**: No identifiers or real health information.
 - **Realistic in structure**: Patient intake dates, appointment history, geographic coordinates, demographics, dropout, and missed-appointment reasons follow plausible distributions.
@@ -14,6 +14,7 @@ All data in this dashboard are **synthetic** and generated for demonstration onl
 - **Appointment-level**: Each patient has multiple appointments with dates, attended (yes/no), and—when missed—a reason code (e.g., access barrier, agoraphobia, transportation, scheduling, other).
 - **Dropout**: A subset of patients is assigned a "dropout" date (no longer in care); time to dropout is simulated (e.g., Weibull) and can vary by health status.
 - **Reproducibility**: A fixed random seed ensures the same dataset is generated each run (see parameters below).
+- **Disruption scenario**: You can set a **disruption period** (date range). During that window, the synthetic model increases dropout and missed-appointment rates to simulate a time-limited reduction in healthcare access (e.g. community disruption). The scenario is politically neutral and is intended only to model how such events can affect continuity of care.
 
 ## Analyses
 

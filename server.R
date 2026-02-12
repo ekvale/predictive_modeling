@@ -5,21 +5,35 @@
 # and appointments derived from sidebar inputs.
 # =============================================================================
 
-# Geographic region bounds (must match global.R synthetic area)
-lat_mid <- 39.85
-lon_mid <- -75.15
+# Geographic region bounds (Minneapolis metro; must match global.R)
+lat_mid <- 45.015
+lon_mid <- -93.175
 
 server <- function(input, output, session) {
+
+  # ---------------------------------------------------------------------------
+  # Synthetic data (regenerate when disruption period changes)
+  # ---------------------------------------------------------------------------
+  synth_reactive <- reactive({
+    req(input$event_range)
+    generate_synthetic_patients(
+      n_patients = 1200, seed = 42,
+      event_start = as.Date(input$event_range[1]),
+      event_end   = as.Date(input$event_range[2])
+    )
+  })
+  patients_reactive    <- reactive(synth_reactive()$patients)
+  appointments_reactive <- reactive(synth_reactive()$appointments)
 
   # ---------------------------------------------------------------------------
   # Filtered data (reactive)
   # ---------------------------------------------------------------------------
   filtered_patients <- reactive({
-    req(patients_df, input$date_range, input$region_filter)
-    # Use all levels if none selected (avoid empty result from empty checkbox)
-    age_sel <- if (length(input$age_groups) == 0) levels(patients_df$age_group) else input$age_groups
-    health_sel <- if (length(input$health) == 0) levels(patients_df$health) else input$health
-    out <- patients_df %>%
+    req(patients_reactive(), input$date_range, input$region_filter)
+    p <- patients_reactive()
+    age_sel <- if (length(input$age_groups) == 0) levels(p$age_group) else input$age_groups
+    health_sel <- if (length(input$health) == 0) levels(p$health) else input$health
+    out <- p %>%
       filter(
         intake_date >= as.Date(input$date_range[1]),
         intake_date <= as.Date(input$date_range[2]),
@@ -40,8 +54,8 @@ server <- function(input, output, session) {
   })
 
   filtered_appointments <- reactive({
-    req(appointments_df, filtered_patients())
-    appointments_df %>%
+    req(appointments_reactive(), filtered_patients())
+    appointments_reactive() %>%
       filter(patient_id %in% filtered_patients()$patient_id)
   })
 
@@ -109,11 +123,14 @@ server <- function(input, output, session) {
   output$overview_attendance_trend <- renderPlotly({
     d <- overview_trend_data()
     if (nrow(d) == 0) return(plotly_empty())
+    ev1 <- as.Date(req(input$event_range[1]))
+    ev2 <- as.Date(req(input$event_range[2]))
     p <- ggplot(d, aes(month, rate)) +
+      geom_rect(xmin = ev1, xmax = ev2, ymin = -Inf, ymax = Inf, fill = "gray85", alpha = 0.4, inherit.aes = FALSE) +
       geom_line(color = cb_palette[2], linewidth = 1) +
       geom_point(color = cb_palette[2], size = 2) +
       scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
-      labs(x = "Month", y = "Attendance rate", title = "Monthly appointment attendance")
+      labs(x = "Month", y = "Attendance rate", title = "Monthly appointment attendance (gray = disruption period)")
     ggplotly(p, tooltip = c("month", "rate", "n"))
   })
 
@@ -161,12 +178,11 @@ server <- function(input, output, session) {
   km_strata_var <- reactive({
     if (is.null(input$km_strata) || input$km_strata == "none") NULL else input$km_strata
   })
-  output$longitudinal_km <- renderPlotly({
+  output$longitudinal_km <- renderPlot({
     df <- filtered_survival()
-    if (nrow(df) == 0) return(plotly_empty())
-    gg <- km_curve_ggplot(df, group_var = km_strata_var(), title = "Patient retention (time to dropout)")
-    ggplotly(gg, tooltip = c("time", "surv", "strata"))
-  })
+    if (nrow(df) == 0) return(plot(NULL, main = "No data"))
+    km_curve_ggplot(df, group_var = km_strata_var(), title = "Patient retention (time to dropout)")
+  }, res = 120)
 
   # Time series: dropout rate and attendance over time
   long_timeseries_data <- reactive({
@@ -186,11 +202,14 @@ server <- function(input, output, session) {
   output$longitudinal_timeseries <- renderPlotly({
     d <- long_timeseries_data()
     if (nrow(d) == 0) return(plotly_empty())
+    ev1 <- as.Date(req(input$event_range[1]))
+    ev2 <- as.Date(req(input$event_range[2]))
     p <- ggplot(d, aes(month, attendance_rate)) +
+      geom_rect(xmin = ev1, xmax = ev2, ymin = -Inf, ymax = Inf, fill = "gray85", alpha = 0.4, inherit.aes = FALSE) +
       geom_line(color = cb_palette[2], linewidth = 1) +
       geom_point(color = cb_palette[2], size = 2) +
       scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
-      labs(x = "Month", y = "Attendance rate", title = "Attendance over time")
+      labs(x = "Month", y = "Attendance rate", title = "Attendance over time (gray = disruption period)")
     ggplotly(p, tooltip = c("month", "attendance_rate", "n_appts"))
   })
 
@@ -375,10 +394,12 @@ server <- function(input, output, session) {
     list(
       n_patients = 1200L,
       seed = 42L,
-      intake_start = "2022-01-01",
+      location = "Minneapolis–Saint Paul metro (synthetic coordinates)",
+      intake_start = "2020-01-01",
       intake_end = "2024-06-30",
       follow_up_end = "2024-12-01",
-      call = "generate_synthetic_patients(n_patients = 1200, seed = 42)"
+      disruption_period = paste(as.character(input$event_range[1]), "to", as.character(input$event_range[2])),
+      call = "generate_synthetic_patients(n_patients = 1200, seed = 42, event_start = ..., event_end = ...)"
     )
   })
 }
