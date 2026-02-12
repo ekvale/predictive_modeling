@@ -14,11 +14,12 @@ fluidPage(
       "Healthcare Access & Continuity Dashboard",
       br(),
       tags$small(
+        "Understanding how disruption periods affect patient care. ",
         a("R/Medicine 2026", href = "https://rconsortium.github.io/RMedicine_website/", target = "_blank", rel = "noopener"),
-        " • Analyzing health data with R and Shiny • Synthetic data only (HIPAA-compliant)"
+        " • Built with R and Shiny • Synthetic data (HIPAA-compliant)"
       )
     ),
-    windowTitle = "Healthcare Access Dashboard | R/Medicine 2026"
+    windowTitle = "Healthcare Access & Continuity | R/Medicine 2026"
   ),
 
   sidebarLayout(
@@ -62,10 +63,10 @@ fluidPage(
         selected = "All regions"
       ),
       hr(),
-      h4("Disruption scenario", class = "text-secondary"),
+      h4("Disruption period", class = "text-primary"),
       p(
         class = "text-muted small",
-        "Simulate a healthcare disruption period that increases dropout and missed appointments in the synthetic data (e.g. reduced access). Default: Minneapolis metro scenario."
+        "This app is built to study how a period of disruption—when access to care is reduced—affects attendance and retention. Choose the start and end dates of the disruption; the data will reflect higher missed appointments and dropouts during that window."
       ),
       dateRangeInput(
         "event_range",
@@ -79,12 +80,12 @@ fluidPage(
       ),
       p(
         class = "text-muted small",
-        "Changing the period regenerates data with elevated dropout and missed appointments during this window."
+        "Changing these dates regenerates the synthetic cohort so you can compare different disruption scenarios."
       ),
       hr(),
       p(
         class = "text-muted small",
-        "Filters apply across all tabs. Data is synthetic and for demonstration only."
+        "Filters apply to all tabs. The disruption period is the main lever: change it to see how different windows of reduced access affect outcomes."
       )
     ),
 
@@ -100,6 +101,7 @@ fluidPage(
         tabPanel(
           "Overview Dashboard",
           h3("Summary statistics and key metrics"),
+          p("Start here for the big picture. The shaded area on the attendance chart marks the disruption period you set in the sidebar."),
           fluidRow(
             column(3, uiOutput("vb_patients")),
             column(3, uiOutput("vb_appointments")),
@@ -120,8 +122,8 @@ fluidPage(
         # ---------------------------------------------------------------------
         tabPanel(
           "Longitudinal Analysis",
-          h3("Patient tracking over time and dropout visualization"),
-          p("Kaplan-Meier style curves show retention (1 - dropout) by selected strata."),
+          h3("Patient tracking over time and dropout"),
+          p("See how retention changes over time and how the disruption period (shaded on the time series) relates to attendance and dropout patterns."),
           selectInput(
             "km_strata",
             "Stratify retention curve by",
@@ -156,8 +158,8 @@ fluidPage(
         # ---------------------------------------------------------------------
         tabPanel(
           "Disruption Modeling",
-          h3("Appointment adherence and healthcare access barriers"),
-          p("Analysis of missed appointments and reasons, including access barriers and agoraphobia-related patterns."),
+          h3("How the disruption shows up in the data"),
+          p("During and after a disruption period, missed appointments and dropout tend to rise. Here you can see reasons for missed care (e.g. access barriers, agoraphobia) and how attendance varies by health status."),
           fluidRow(
             column(6, plotlyOutput("disruption_reasons", height = "360px")),
             column(6, plotlyOutput("disruption_by_health", height = "360px"))
@@ -210,7 +212,7 @@ fluidPage(
         tabPanel(
           "Tell the Story",
           h3("Presentation view: telling the story with data"),
-          p("Use this tab at the conference to walk through access, disparities, and outcomes with flow visualizations. All flows use the currently filtered population."),
+          p("Use this tab to present the main idea: how a disruption period affects who gets care and who drops out. The flow charts summarize the impact for your audience; they reflect the disruption period and filters you set."),
           uiOutput("story_headline"),
           hr(),
           h4("Flow 1: Who attends vs misses appointments?", class = "text-primary"),

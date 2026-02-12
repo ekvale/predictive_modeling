@@ -127,15 +127,24 @@ server <- function(input, output, session) {
   output$overview_attendance_trend <- renderPlotly({
     d <- overview_trend_data()
     if (nrow(d) == 0) return(plotly_empty())
-    ev1 <- as.Date(req(input$event_range[1]))
-    ev2 <- as.Date(req(input$event_range[2]))
+    ev1 <- as.character(as.Date(req(input$event_range[1])))
+    ev2 <- as.character(as.Date(req(input$event_range[2])))
     p <- ggplot(d, aes(month, rate)) +
-      geom_rect(xmin = ev1, xmax = ev2, ymin = -Inf, ymax = Inf, fill = "gray85", alpha = 0.4, inherit.aes = FALSE) +
       geom_line(color = cb_palette[2], linewidth = 1) +
       geom_point(color = cb_palette[2], size = 2) +
       scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
-      labs(x = "Month", y = "Attendance rate", title = "Monthly appointment attendance (gray = disruption period)")
-    ggplotly(p, tooltip = c("month", "rate", "n"))
+      labs(x = "Month", y = "Attendance rate", title = "Monthly attendance (shaded = disruption period)")
+    fig <- ggplotly(p, tooltip = c("month", "rate", "n"))
+    x_min <- min(c(d$month, as.Date(ev1), as.Date(ev2)), na.rm = TRUE)
+    x_max <- max(c(d$month, as.Date(ev1), as.Date(ev2)), na.rm = TRUE)
+    fig %>% layout(
+      shapes = list(
+        list(type = "rect", x0 = ev1, x1 = ev2, y0 = 0, y1 = 1,
+             yref = "paper", xref = "x", layer = "below",
+             fillcolor = "#6b6b6b", opacity = 0.45, line = list(width = 0))
+      ),
+      xaxis = list(range = c(as.character(x_min), as.character(x_max)))
+    )
   })
 
   # Missed appointment reasons
@@ -232,15 +241,24 @@ server <- function(input, output, session) {
   output$longitudinal_timeseries <- renderPlotly({
     d <- long_timeseries_data()
     if (nrow(d) == 0) return(plotly_empty())
-    ev1 <- as.Date(req(input$event_range[1]))
-    ev2 <- as.Date(req(input$event_range[2]))
+    ev1 <- as.character(as.Date(req(input$event_range[1])))
+    ev2 <- as.character(as.Date(req(input$event_range[2])))
     p <- ggplot(d, aes(month, attendance_rate)) +
-      geom_rect(xmin = ev1, xmax = ev2, ymin = -Inf, ymax = Inf, fill = "gray85", alpha = 0.4, inherit.aes = FALSE) +
       geom_line(color = cb_palette[2], linewidth = 1) +
       geom_point(color = cb_palette[2], size = 2) +
       scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
-      labs(x = "Month", y = "Attendance rate", title = "Attendance over time (gray = disruption period)")
-    ggplotly(p, tooltip = c("month", "attendance_rate", "n_appts"))
+      labs(x = "Month", y = "Attendance rate", title = "Attendance over time (shaded = disruption period)")
+    fig <- ggplotly(p, tooltip = c("month", "attendance_rate", "n_appts"))
+    x_min <- min(c(d$month, as.Date(ev1), as.Date(ev2)), na.rm = TRUE)
+    x_max <- max(c(d$month, as.Date(ev1), as.Date(ev2)), na.rm = TRUE)
+    fig %>% layout(
+      shapes = list(
+        list(type = "rect", x0 = ev1, x1 = ev2, y0 = 0, y1 = 1,
+             yref = "paper", xref = "x", layer = "below",
+             fillcolor = "#6b6b6b", opacity = 0.45, line = list(width = 0))
+      ),
+      xaxis = list(range = c(as.character(x_min), as.character(x_max)))
+    )
   })
 
   # Dropout rate by group (e.g. health)
