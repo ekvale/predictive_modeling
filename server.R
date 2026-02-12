@@ -59,7 +59,7 @@ server <- function(input, output, session) {
       filter(patient_id %in% filtered_patients()$patient_id)
   })
 
-  # Survival data for KM (one row per patient: time_days, event)
+  # Survival data for KM (one row per patient: time_days, event as 0/1 integer for survival package)
   filtered_survival <- reactive({
     req(filtered_patients())
     filtered_patients() %>%
@@ -68,7 +68,7 @@ server <- function(input, output, session) {
           pmin(coalesce(dropout_date, as.Date("2024-12-01")), as.Date("2024-12-01")),
           intake_date, units = "days"
         )),
-        event = !is.na(dropout_date)
+        event = as.integer(!is.na(dropout_date))
       )
   })
 
@@ -93,17 +93,19 @@ server <- function(input, output, session) {
   })
   output$vb_attendance_rate <- renderUI({
     att <- filtered_appointments() %>% summarise(p = mean(attended, na.rm = TRUE)) %>% pull(p)
+    pct <- if (is.na(att)) "—" else scales::percent(round(att, 2), accuracy = 0.1)
     bslib::value_box(
       title = "Attendance rate",
-      value = scales::percent(att, accuracy = 0.1),
+      value = pct,
       theme = "success"
     )
   })
   output$vb_dropout_rate <- renderUI({
     p <- filtered_patients() %>% summarise(p = mean(!is.na(dropout_date))) %>% pull(p)
+    pct <- if (is.na(p)) "—" else scales::percent(round(p, 2), accuracy = 0.1)
     bslib::value_box(
       title = "Dropout rate",
-      value = scales::percent(p, accuracy = 0.1),
+      value = pct,
       theme = "warning"
     )
   })
@@ -129,7 +131,7 @@ server <- function(input, output, session) {
       geom_rect(xmin = ev1, xmax = ev2, ymin = -Inf, ymax = Inf, fill = "gray85", alpha = 0.4, inherit.aes = FALSE) +
       geom_line(color = cb_palette[2], linewidth = 1) +
       geom_point(color = cb_palette[2], size = 2) +
-      scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
       labs(x = "Month", y = "Attendance rate", title = "Monthly appointment attendance (gray = disruption period)")
     ggplotly(p, tooltip = c("month", "rate", "n"))
   })
@@ -163,7 +165,7 @@ server <- function(input, output, session) {
       summarise(
         appointments = n(),
         attended = sum(attended, na.rm = TRUE),
-        attendance_pct = 100 * mean(attended, na.rm = TRUE),
+        attendance_pct = round(100 * mean(attended, na.rm = TRUE), 1),
         .groups = "drop"
       )
     by_health
@@ -208,7 +210,7 @@ server <- function(input, output, session) {
       geom_rect(xmin = ev1, xmax = ev2, ymin = -Inf, ymax = Inf, fill = "gray85", alpha = 0.4, inherit.aes = FALSE) +
       geom_line(color = cb_palette[2], linewidth = 1) +
       geom_point(color = cb_palette[2], size = 2) +
-      scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
       labs(x = "Month", y = "Attendance rate", title = "Attendance over time (gray = disruption period)")
     ggplotly(p, tooltip = c("month", "attendance_rate", "n_appts"))
   })
@@ -229,7 +231,7 @@ server <- function(input, output, session) {
     p <- ggplot(d, aes(health, pct, fill = health)) +
       geom_col(show.legend = FALSE) +
       scale_fill_manual(values = cb_palette) +
-      scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
       labs(x = "General health", y = "Dropout rate", title = "Dropout rate by health status")
     ggplotly(p, tooltip = c("health", "pct", "n"))
   })
@@ -242,11 +244,17 @@ server <- function(input, output, session) {
   })
   output$download_km_png <- downloadHandler(
     filename = "kaplan_meier_retention.png",
-    content = function(file) ggsave(file, plot = km_plot_obj(), device = "png", width = 8, height = 5, dpi = 150)
+    content = function(file) {
+      p <- km_plot_obj()
+      if (inherits(p, "ggplot") && length(p$layers) > 0) ggsave(file, plot = p, device = "png", width = 8, height = 5, dpi = 150)
+    }
   )
   output$download_km_pdf <- downloadHandler(
     filename = "kaplan_meier_retention.pdf",
-    content = function(file) ggsave(file, plot = km_plot_obj(), device = "pdf", width = 8, height = 5)
+    content = function(file) {
+      p <- km_plot_obj()
+      if (inherits(p, "ggplot") && length(p$layers) > 0) ggsave(file, plot = p, device = "pdf", width = 8, height = 5)
+    }
   )
 
   # ---------------------------------------------------------------------------
@@ -286,7 +294,7 @@ server <- function(input, output, session) {
     p <- ggplot(d, aes(region, attendance_rate, fill = region)) +
       geom_col(show.legend = FALSE) +
       scale_fill_manual(values = cb_palette) +
-      scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
       coord_flip() +
       labs(x = "Region", y = "Attendance rate", title = "Attendance by geographic quadrant")
     ggplotly(p, tooltip = c("region", "attendance_rate", "n"))
@@ -341,7 +349,7 @@ server <- function(input, output, session) {
       geom_col(show.legend = FALSE) +
       geom_hline(yintercept = mean(filtered_appointments()$attended, na.rm = TRUE), linetype = 2) +
       scale_fill_manual(values = cb_palette) +
-      scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
       labs(x = "General health", y = "Attendance rate", title = "Attendance by health status")
     ggplotly(p, tooltip = c("health", "rate", "n"))
   })
@@ -352,7 +360,7 @@ server <- function(input, output, session) {
     p <- ggplot(d, aes(month, attendance_rate)) +
       geom_line(color = cb_palette[2], linewidth = 1) +
       geom_point(color = cb_palette[2], size = 2) +
-      scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
       labs(x = "Month", y = "Attendance rate", title = "Attendance trend over time")
     ggplotly(p, tooltip = c("month", "attendance_rate"))
   })
@@ -369,7 +377,8 @@ server <- function(input, output, session) {
         ci_low = pmax(0, rate - 1.96 * se),
         ci_high = pmin(1, rate + 1.96 * se),
         .groups = "drop"
-      )
+      ) %>%
+      mutate(rate = round(rate, 2), ci_low = round(ci_low, 2), ci_high = round(ci_high, 2))
   })
   output$disruption_attendance_ci <- renderPlotly({
     d <- disruption_ci_data()
@@ -378,7 +387,7 @@ server <- function(input, output, session) {
       geom_col(show.legend = FALSE) +
       geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.2, linewidth = 0.8) +
       scale_fill_manual(values = cb_palette) +
-      scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
       labs(x = "General health", y = "Attendance rate (95% CI)", title = "Attendance with 95% confidence intervals")
     ggplotly(p, tooltip = c("health", "rate", "ci_low", "ci_high", "n"))
   })

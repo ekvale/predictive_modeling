@@ -169,13 +169,18 @@ appointments_df <- synth$appointments
 # -----------------------------------------------------------------------------
 
 # Build data frame from survfit for ggplot (no extra packages)
+# Handles NULL lower/upper when conf.int not computed.
 survfit_to_df <- function(fit) {
+  lo <- fit$lower
+  hi <- fit$upper
+  if (is.null(lo)) lo <- fit$surv
+  if (is.null(hi)) hi <- fit$surv
   if (is.null(fit$strata)) {
     return(tibble(
-      time = c(0, fit$time),
-      surv = c(1, fit$surv),
-      lower = c(1, fit$lower),
-      upper = c(1, fit$upper),
+      time = as.numeric(c(0, fit$time)),
+      surv = as.numeric(c(1, fit$surv)),
+      lower = as.numeric(c(1, lo)),
+      upper = as.numeric(c(1, hi)),
       strata = "Overall"
     ))
   }
@@ -186,28 +191,32 @@ survfit_to_df <- function(fit) {
   out <- map_dfr(seq_along(lens), function(i) {
     idx <- seq(starts[i], ends[i])
     tibble(
-      time = c(0, fit$time[idx]),
-      surv = c(1, fit$surv[idx]),
-      lower = c(1, fit$lower[idx]),
-      upper = c(1, fit$upper[idx]),
-      strata = names(lens)[i]
+      time = as.numeric(c(0, fit$time[idx])),
+      surv = as.numeric(c(1, fit$surv[idx])),
+      lower = as.numeric(c(1, lo[idx])),
+      upper = as.numeric(c(1, hi[idx])),
+      strata = as.character(names(lens)[i])
     )
   })
   out
 }
 
 # Kaplan-Meier curve as ggplot (patient retention / time to dropout)
-# Uses character strata and static labels so plot renders reliably (no plotly conversion issues).
+# Uses numeric time/surv and character strata so plot renders reliably.
 km_curve_ggplot <- function(df, group_var = NULL, title = "Patient retention (time to dropout)") {
+  # Ensure numeric for Surv(); need at least one row
+  df <- df %>% filter(!is.na(time_days), time_days >= 0)
+  if (nrow(df) == 0) return(ggplot() + labs(title = "No data") + theme_minimal())
+  pct_lab <- function(x) scales::percent(x, accuracy = 0.1)
   if (is.null(group_var)) {
     fit <- survfit(Surv(time_days, event) ~ 1, data = df)
     f <- survfit_to_df(fit)
     p <- ggplot(f, aes(time, surv)) +
       geom_step(aes(color = "Overall"), linewidth = 1.2) +
       geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2, fill = cb_palette[1]) +
-      scale_y_continuous(labels = percent_format(), limits = c(0, 1)) +
+      scale_y_continuous(labels = pct_lab, limits = c(0, 1)) +
       labs(x = "Days since intake", y = "Retention probability", title = title, color = NULL) +
-      scale_color_manual(values = cb_palette[1]) +
+      scale_color_manual(values = setNames(cb_palette[1], "Overall")) +
       theme(legend.position = "bottom")
     return(p)
   }
@@ -217,13 +226,15 @@ km_curve_ggplot <- function(df, group_var = NULL, title = "Patient retention (ti
   f$strata <- as.character(f$strata)
   strata_levels <- unique(f$strata)
   nlev <- length(strata_levels)
+  if (nlev == 0) return(ggplot() + labs(title = "No strata") + theme_minimal())
+  val_vec <- setNames(cb_palette[seq_len(nlev)], strata_levels)
   p <- ggplot(f, aes(time, surv, color = strata, fill = strata)) +
     geom_step(linewidth = 1.2) +
     geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.15, colour = NA) +
-    scale_y_continuous(labels = percent_format(), limits = c(0, 1)) +
+    scale_y_continuous(labels = pct_lab, limits = c(0, 1)) +
     labs(x = "Days since intake", y = "Retention probability", title = title, color = NULL, fill = NULL) +
-    scale_color_manual(values = cb_palette[seq_len(nlev)], breaks = strata_levels) +
-    scale_fill_manual(values = cb_palette[seq_len(nlev)], breaks = strata_levels) +
+    scale_color_manual(values = val_vec, breaks = strata_levels) +
+    scale_fill_manual(values = val_vec, breaks = strata_levels) +
     theme(legend.position = "bottom")
   p
 }
