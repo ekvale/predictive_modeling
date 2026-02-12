@@ -523,6 +523,172 @@ server <- function(input, output, session) {
   }, options = list(paging = FALSE), rownames = FALSE)
 
   # ---------------------------------------------------------------------------
+  # Tell the Story (presentation tab: narrative + Sankey flows)
+  # ---------------------------------------------------------------------------
+  output$story_headline <- renderUI({
+    p <- filtered_patients()
+    a <- filtered_appointments()
+    n_p <- nrow(p)
+    n_a <- nrow(a)
+    if (n_p == 0 || n_a == 0) return(p(em("No data for current filters.")))
+    att_rate <- round(100 * mean(a$attended, na.rm = TRUE), 1)
+    drop_rate <- round(100 * mean(!is.na(p$dropout_date)), 1)
+    n_missed <- sum(!a$attended, na.rm = TRUE)
+    div(
+      class = "well",
+      h4("In this population:", class = "text-primary"),
+      p(strong(format(n_p, big.mark = ",")), " patients, ", strong(format(n_a, big.mark = ",")), " appointments. ",
+        "Attendance rate ", strong(paste0(att_rate, "%")), " — ",
+        strong(format(n_missed, big.mark = ",")), " missed. ",
+        "Dropout rate ", strong(paste0(drop_rate, "%")), "."),
+      p(em("Use the flow charts below to show who is affected and why."))
+    )
+  })
+
+  # Sankey 1: Race → Attended / Missed (appointments)
+  sankey_attendance_data <- reactive({
+    a <- filtered_appointments() %>%
+      left_join(filtered_patients() %>% select(patient_id, race_eth), by = "patient_id")
+    if (nrow(a) == 0) return(list(nodes = character(0), source = integer(0), target = integer(0), value = numeric(0)))
+    d <- a %>% count(race_eth, attended, name = "n") %>% filter(n > 0)
+    races <- sort(unique(d$race_eth))
+    nodes <- c(as.character(races), "Attended", "Missed")
+    n_r <- length(races)
+    idx_att <- n_r
+    idx_miss <- n_r + 1L
+    source <- integer(0)
+    target <- integer(0)
+    value <- numeric(0)
+    for (i in seq_along(races)) {
+      r <- races[i]
+      n_att <- d %>% filter(race_eth == r, attended) %>% pull(n) %>% sum()
+      n_mis <- d %>% filter(race_eth == r, !attended) %>% pull(n) %>% sum()
+      if (n_att > 0) { source <- c(source, i - 1L); target <- c(target, idx_att); value <- c(value, n_att) }
+      if (n_mis > 0) { source <- c(source, i - 1L); target <- c(target, idx_miss); value <- c(value, n_mis) }
+    }
+    list(nodes = nodes, source = source, target = target, value = value, n_race = n_r)
+  })
+  output$sankey_attendance <- renderPlotly({
+    sk <- sankey_attendance_data()
+    if (length(sk$nodes) == 0 || sum(sk$value) == 0) return(plotly_empty())
+    n_r <- sk$n_race
+    node_colors <- c(cb_palette[seq_len(n_r)], "#009E73", "#D55E00")
+    node_colors <- rep(node_colors, length.out = length(sk$nodes))
+    plot_ly(
+      type = "sankey",
+      orientation = "h",
+      node = list(
+        label = sk$nodes,
+        color = node_colors,
+        pad = 15,
+        thickness = 20,
+        line = list(color = "gray90", width = 0.5)
+      ),
+      link = list(
+        source = sk$source,
+        target = sk$target,
+        value = sk$value
+      )
+    ) %>%
+      layout(
+        title = list(text = "Appointments: Race/ethnicity → Attended vs Missed", font = list(size = 14)),
+        font = list(size = 12),
+        margin = list(l = 20, r = 20, t = 40, b = 20),
+        xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+        yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE)
+      ) %>%
+      config(displayModeBar = TRUE, displaylogo = FALSE)
+  })
+
+  # Sankey 2: Missed appointments → Reason
+  sankey_reasons_data <- reactive({
+    a <- filtered_appointments() %>% filter(!attended, !is.na(missed_reason))
+    if (nrow(a) == 0) return(list(nodes = character(0), source = integer(0), target = integer(0), value = numeric(0)))
+    d <- a %>% count(missed_reason, name = "n") %>% filter(n > 0)
+    reasons <- as.character(d$missed_reason)
+    nodes <- c("Missed", reasons)
+    source <- rep(0L, length(reasons))
+    target <- seq_len(length(reasons))
+    value <- d$n
+    list(nodes = nodes, source = source, target = target, value = value)
+  })
+  output$sankey_missed_reasons <- renderPlotly({
+    sk <- sankey_reasons_data()
+    if (length(sk$nodes) == 0 || sum(sk$value) == 0) return(plotly_empty())
+    node_colors <- c("#D55E00", cb_palette[seq_len(length(sk$nodes) - 1)])
+    plot_ly(
+      type = "sankey",
+      orientation = "h",
+      node = list(
+        label = sk$nodes,
+        color = node_colors,
+        pad = 15,
+        thickness = 20,
+        line = list(color = "gray90", width = 0.5)
+      ),
+      link = list(source = sk$source, target = sk$target, value = sk$value)
+    ) %>%
+      layout(
+        title = list(text = "Missed appointments → Reason", font = list(size = 14)),
+        font = list(size = 12),
+        margin = list(l = 20, r = 20, t = 40, b = 20),
+        xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+        yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE)
+      ) %>%
+      config(displayModeBar = TRUE, displaylogo = FALSE)
+  })
+
+  # Sankey 3: Race → Retained in care / Dropped out
+  sankey_retention_data <- reactive({
+    p <- filtered_patients()
+    if (nrow(p) == 0) return(list(nodes = character(0), source = integer(0), target = integer(0), value = numeric(0)))
+    p <- p %>% mutate(dropped = !is.na(dropout_date)) %>% count(race_eth, dropped, name = "n") %>% filter(n > 0)
+    races <- sort(unique(p$race_eth))
+    nodes <- c(as.character(races), "Retained in care", "Dropped out")
+    n_r <- length(races)
+    idx_ret <- n_r
+    idx_drop <- n_r + 1L
+    source <- integer(0)
+    target <- integer(0)
+    value <- numeric(0)
+    for (i in seq_along(races)) {
+      r <- races[i]
+      n_ret <- p %>% filter(race_eth == r, !dropped) %>% pull(n) %>% sum()
+      n_drop <- p %>% filter(race_eth == r, dropped) %>% pull(n) %>% sum()
+      if (n_ret > 0) { source <- c(source, i - 1L); target <- c(target, idx_ret); value <- c(value, n_ret) }
+      if (n_drop > 0) { source <- c(source, i - 1L); target <- c(target, idx_drop); value <- c(value, n_drop) }
+    }
+    list(nodes = nodes, source = source, target = target, value = value, n_race = n_r)
+  })
+  output$sankey_retention <- renderPlotly({
+    sk <- sankey_retention_data()
+    if (length(sk$nodes) == 0 || sum(sk$value) == 0) return(plotly_empty())
+    n_r <- sk$n_race
+    node_colors <- c(cb_palette[seq_len(n_r)], "#009E73", "#D55E00")
+    node_colors <- rep(node_colors, length.out = length(sk$nodes))
+    plot_ly(
+      type = "sankey",
+      orientation = "h",
+      node = list(
+        label = sk$nodes,
+        color = node_colors,
+        pad = 15,
+        thickness = 20,
+        line = list(color = "gray90", width = 0.5)
+      ),
+      link = list(source = sk$source, target = sk$target, value = sk$value)
+    ) %>%
+      layout(
+        title = list(text = "Patients: Race/ethnicity → Retained in care vs Dropped out", font = list(size = 14)),
+        font = list(size = 12),
+        margin = list(l = 20, r = 20, t = 40, b = 20),
+        xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+        yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE)
+      ) %>%
+      config(displayModeBar = TRUE, displaylogo = FALSE)
+  })
+
+  # ---------------------------------------------------------------------------
   # Reproducibility
   # ---------------------------------------------------------------------------
   output$repro_params <- renderPrint({

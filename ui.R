@@ -205,7 +205,29 @@ fluidPage(
         ),
 
         # ---------------------------------------------------------------------
-        # Tab 7: Reproducibility & Methodology
+        # Tab 7: Tell the Story (conference presentation)
+        # ---------------------------------------------------------------------
+        tabPanel(
+          "Tell the Story",
+          h3("Presentation view: telling the story with data"),
+          p("Use this tab at the conference to walk through access, disparities, and outcomes with flow visualizations. All flows use the currently filtered population."),
+          uiOutput("story_headline"),
+          hr(),
+          h4("Flow 1: Who attends vs misses appointments?", class = "text-primary"),
+          p("Appointments by race/ethnicity flowing to Attended or Missed."),
+          plotlyOutput("sankey_attendance", height = "420px"),
+          hr(),
+          h4("Flow 2: Why are appointments missed?", class = "text-primary"),
+          p("Missed appointments by reason (access barriers, agoraphobia, transportation, etc.)."),
+          plotlyOutput("sankey_missed_reasons", height = "380px"),
+          hr(),
+          h4("Flow 3: Who stays in care vs drops out?", class = "text-primary"),
+          p("Patients by race/ethnicity flowing to Retained in care or Dropped out."),
+          plotlyOutput("sankey_retention", height = "420px")
+        ),
+
+        # ---------------------------------------------------------------------
+        # Tab 8: Reproducibility & Methodology
         # ---------------------------------------------------------------------
         tabPanel(
           "Reproducibility",
