@@ -11,6 +11,15 @@ lon_mid <- -93.175
 
 server <- function(input, output, session) {
 
+  # Update disruption date range when preset changes
+  observeEvent(input$disruption_preset, {
+    if (input$disruption_preset == "current") {
+      updateDateRangeInput(session, "event_range", start = DEFAULT_EVENT_START, end = DEFAULT_EVENT_END)
+    } else if (input$disruption_preset == "covid") {
+      updateDateRangeInput(session, "event_range", start = COVID_EVENT_START, end = COVID_EVENT_END)
+    }
+  })
+
   # ---------------------------------------------------------------------------
   # Synthetic data (regenerate when disruption period changes)
   # ---------------------------------------------------------------------------
@@ -67,7 +76,7 @@ server <- function(input, output, session) {
     filtered_patients() %>%
       mutate(
         time_days = as.numeric(difftime(
-          pmin(coalesce(dropout_date, as.Date("2024-12-01")), as.Date("2024-12-01")),
+          pmin(coalesce(dropout_date, as.Date("2026-12-01")), as.Date("2026-12-01")),
           intake_date, units = "days"
         )),
         event = as.integer(!is.na(dropout_date))
@@ -127,24 +136,29 @@ server <- function(input, output, session) {
   output$overview_attendance_trend <- renderPlotly({
     d <- overview_trend_data()
     if (nrow(d) == 0) return(plotly_empty())
-    ev1 <- as.character(as.Date(req(input$event_range[1])))
-    ev2 <- as.character(as.Date(req(input$event_range[2])))
+    ev1 <- as.Date(req(input$event_range[1]))
+    ev2 <- as.Date(req(input$event_range[2]))
+    x_min <- min(c(d$month, ev1, ev2), na.rm = TRUE)
+    x_max <- max(c(d$month, ev1, ev2), na.rm = TRUE)
     p <- ggplot(d, aes(month, rate)) +
+      annotate("rect", xmin = ev1, xmax = ev2, ymin = -Inf, ymax = Inf,
+               fill = "gray55", alpha = 0.5, inherit.aes = FALSE) +
       geom_line(color = cb_palette[2], linewidth = 1) +
       geom_point(color = cb_palette[2], size = 2) +
+      scale_x_date(limits = c(x_min, x_max), expand = expansion(mult = 0.02)) +
       scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
-      labs(x = "Month", y = "Attendance rate", title = "Monthly attendance (shaded = disruption period)")
+      labs(x = "Month", y = "Attendance rate", title = "Monthly attendance (gray band = disruption period)")
     fig <- ggplotly(p, tooltip = c("month", "rate", "n"))
-    x_min <- min(c(d$month, as.Date(ev1), as.Date(ev2)), na.rm = TRUE)
-    x_max <- max(c(d$month, as.Date(ev1), as.Date(ev2)), na.rm = TRUE)
-    fig %>% layout(
-      shapes = list(
-        list(type = "rect", x0 = ev1, x1 = ev2, y0 = 0, y1 = 1,
-             yref = "paper", xref = "x", layer = "below",
-             fillcolor = "#6b6b6b", opacity = 0.45, line = list(width = 0))
-      ),
-      xaxis = list(range = c(as.character(x_min), as.character(x_max)))
-    )
+    if (!identical(fig$x$data, list())) {
+      fig <- fig %>% layout(
+        shapes = list(
+          list(type = "rect", x0 = as.character(ev1), x1 = as.character(ev2), y0 = 0, y1 = 1,
+               yref = "paper", xref = "x", layer = "below",
+               fillcolor = "gray", opacity = 0.4, line = list(width = 0))
+        )
+      )
+    }
+    fig
   })
 
   # Missed appointment reasons
@@ -241,24 +255,29 @@ server <- function(input, output, session) {
   output$longitudinal_timeseries <- renderPlotly({
     d <- long_timeseries_data()
     if (nrow(d) == 0) return(plotly_empty())
-    ev1 <- as.character(as.Date(req(input$event_range[1])))
-    ev2 <- as.character(as.Date(req(input$event_range[2])))
+    ev1 <- as.Date(req(input$event_range[1]))
+    ev2 <- as.Date(req(input$event_range[2]))
+    x_min <- min(c(d$month, ev1, ev2), na.rm = TRUE)
+    x_max <- max(c(d$month, ev1, ev2), na.rm = TRUE)
     p <- ggplot(d, aes(month, attendance_rate)) +
+      annotate("rect", xmin = ev1, xmax = ev2, ymin = -Inf, ymax = Inf,
+               fill = "gray55", alpha = 0.5, inherit.aes = FALSE) +
       geom_line(color = cb_palette[2], linewidth = 1) +
       geom_point(color = cb_palette[2], size = 2) +
+      scale_x_date(limits = c(x_min, x_max), expand = expansion(mult = 0.02)) +
       scale_y_continuous(labels = scales::percent_format(accuracy = 0.1), limits = c(0, 1)) +
-      labs(x = "Month", y = "Attendance rate", title = "Attendance over time (shaded = disruption period)")
+      labs(x = "Month", y = "Attendance rate", title = "Attendance over time (gray band = disruption period)")
     fig <- ggplotly(p, tooltip = c("month", "attendance_rate", "n_appts"))
-    x_min <- min(c(d$month, as.Date(ev1), as.Date(ev2)), na.rm = TRUE)
-    x_max <- max(c(d$month, as.Date(ev1), as.Date(ev2)), na.rm = TRUE)
-    fig %>% layout(
-      shapes = list(
-        list(type = "rect", x0 = ev1, x1 = ev2, y0 = 0, y1 = 1,
-             yref = "paper", xref = "x", layer = "below",
-             fillcolor = "#6b6b6b", opacity = 0.45, line = list(width = 0))
-      ),
-      xaxis = list(range = c(as.character(x_min), as.character(x_max)))
-    )
+    if (!identical(fig$x$data, list())) {
+      fig <- fig %>% layout(
+        shapes = list(
+          list(type = "rect", x0 = as.character(ev1), x1 = as.character(ev2), y0 = 0, y1 = 1,
+               yref = "paper", xref = "x", layer = "below",
+               fillcolor = "gray", opacity = 0.4, line = list(width = 0))
+        )
+      )
+    }
+    fig
   })
 
   # Dropout rate by group (e.g. health)
@@ -716,7 +735,7 @@ server <- function(input, output, session) {
       location = "Minneapolis–Saint Paul metro (synthetic coordinates)",
       intake_start = "2020-01-01",
       intake_end = "2024-06-30",
-      follow_up_end = "2024-12-01",
+      follow_up_end = "2026-12-01",
       disruption_period = paste(as.character(input$event_range[1]), "to", as.character(input$event_range[2])),
       call = "generate_synthetic_patients(n_patients = 1200, seed = 42, event_start = ..., event_end = ...)"
     )

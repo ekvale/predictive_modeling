@@ -66,7 +66,17 @@ fluidPage(
       h4("Disruption period", class = "text-primary"),
       p(
         class = "text-muted small",
-        "This app is built to study how a period of disruption—when access to care is reduced—affects attendance and retention. Choose the start and end dates of the disruption; the data will reflect higher missed appointments and dropouts during that window."
+        "Study how a period of disruption—when access to care is reduced—affects attendance and retention. Pick a preset or set custom dates; the data will reflect higher missed appointments and dropouts during that window."
+      ),
+      radioButtons(
+        "disruption_preset",
+        "Disruption scenario",
+        choices = c(
+          "Current (Minneapolis healthcare disruption)" = "current",
+          "COVID-19 health impacts" = "covid",
+          "Custom dates" = "custom"
+        ),
+        selected = "current"
       ),
       dateRangeInput(
         "event_range",
@@ -74,13 +84,13 @@ fluidPage(
         start = DEFAULT_EVENT_START,
         end = DEFAULT_EVENT_END,
         min = as.Date("2020-01-01"),
-        max = as.Date("2024-12-01"),
+        max = as.Date("2026-12-01"),
         separator = " to ",
         startview = "year"
       ),
       p(
         class = "text-muted small",
-        "Changing these dates regenerates the synthetic cohort so you can compare different disruption scenarios."
+        "Changing the scenario or dates regenerates the synthetic cohort so you can compare different disruption periods."
       ),
       hr(),
       p(

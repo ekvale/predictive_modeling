@@ -41,17 +41,20 @@ theme_set(theme_minimal(base_size = 12) +
 # dropout and missed appointments during that window (politically neutral
 # "healthcare disruption" scenario for modeling).
 
-# Default disruption window (used when event not set); Minneapolis-relevant.
-DEFAULT_EVENT_START <- as.Date("2020-05-25")
-DEFAULT_EVENT_END   <- as.Date("2020-06-30")
+# Disruption presets: current Minneapolis healthcare disruption and COVID-19.
+DEFAULT_EVENT_START <- as.Date("2024-11-01")   # Current: Minneapolis healthcare strike / access disruption
+DEFAULT_EVENT_END   <- as.Date("2024-12-15")
+COVID_EVENT_START   <- as.Date("2020-03-01")
+COVID_EVENT_END     <- as.Date("2021-06-30")
+FOLLOW_UP_END       <- as.Date("2026-12-01")
 
 generate_synthetic_patients <- function(n_patients = 1200, seed = 42,
                                        event_start = NULL, event_end = NULL,
                                        event_dropout_boost = 0.35, event_miss_boost = 0.25) {
   set.seed(seed)
-  # Intake range includes 2020 so disruption event can affect outcomes
+  # Intake range: 2020 through current (supports COVID-19 and current disruption scenarios)
   start_intake <- as.Date("2020-01-01")
-  end_intake   <- as.Date("2024-06-30")
+  end_intake   <- as.Date("2026-06-30")
   intake_dates <- sample(seq(start_intake, end_intake, by = "day"), n_patients, replace = TRUE)
 
   # Minneapolis–Saint Paul metro (synthetic points within metro area)
@@ -71,7 +74,8 @@ generate_synthetic_patients <- function(n_patients = 1200, seed = 42,
   race_eth <- sample(race_levels, n_patients, replace = TRUE, prob = race_probs)
 
   # Dropout: baseline by health, then multiplied by race factor (synthetic differential access)
-  max_follow_up_days <- as.numeric(difftime(as.Date("2024-12-01"), start_intake), units = "days")
+  end_follow <- as.Date("2026-12-01")
+  max_follow_up_days <- as.numeric(difftime(end_follow, start_intake), units = "days")
   dropout_rate_by_health <- c(Good = 0.15, Fair = 0.25, Poor = 0.45)
   race_dropout_mult <- c(White = 1.0, Black = 1.3, Somali = 1.35, Asian = 1.0, Hmong = 1.25,
                          "Hispanic/Latino" = 1.2, "Native American" = 1.2, Other = 1.1)
@@ -123,7 +127,6 @@ generate_synthetic_patients <- function(n_patients = 1200, seed = 42,
   appt_dropout    <- patients$dropout_date[appointment_rows]
 
   # Appointment date: between intake and dropout (or end of follow-up)
-  end_follow <- as.Date("2024-12-01")
   max_appt_date <- pmin(coalesce(appt_dropout, end_follow), end_follow)
   min_appt_date <- appt_intake
   span <- as.numeric(max_appt_date - min_appt_date)
