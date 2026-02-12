@@ -1,0 +1,18 @@
+# R
+.Rhistory
+.RData
+.Rproj.user
+*.Rproj
+
+# Posit / RStudio
+.Rprofile
+rsconnect/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
